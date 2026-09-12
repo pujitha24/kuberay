@@ -225,6 +225,19 @@ func (ec *EventCollector) UpdateNodeID(newNodeID string) {
 	ec.rotateAllFilesLocked()
 }
 
+// newEventServer builds the HTTP server for the event collector's /v1 API.
+// Handler is left nil so requests are served by http.DefaultServeMux, which
+// restful.Add(ws) registers the /v1 routes on. Timeouts are set (gosec G114)
+// to bound how long a slow or stalled client can hold a connection open.
+func newEventServer(port int) *http.Server {
+	return &http.Server{
+		Addr:         fmt.Sprintf(":%d", port),
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 35 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+}
+
 func (ec *EventCollector) Run(stop <-chan struct{}, port int) {
 	if err := os.MkdirAll(ec.dataDir, 0o755); err != nil {
 		logrus.Fatalf("Failed to create event data dir %s: %v", ec.dataDir, err)
@@ -241,9 +254,10 @@ func (ec *EventCollector) Run(stop <-chan struct{}, port int) {
 	ws.Route(ws.POST("/events").To(ec.PersistEvents))
 	restful.Add(ws)
 
+	server := newEventServer(port)
 	go func() {
 		logrus.Infof("Starting event collector on port %d", port)
-		logrus.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", port), nil))
+		logrus.Fatal(server.ListenAndServe())
 	}()
 
 	ec.producersWG.Add(1)

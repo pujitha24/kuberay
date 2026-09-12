@@ -4,9 +4,11 @@ import (
 	"bufio"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -690,4 +692,43 @@ func TestAtomicInt64Type(t *testing.T) {
 	var x atomic.Int64
 	x.Store(5)
 	assert.Equal(t, int64(5), x.Load())
+}
+
+// ---------- newEventServer sets timeouts (gosec G114) ----------
+
+// A bare http.ListenAndServe never times out a connection stuck sending
+// headers, letting a slow client hold it open indefinitely. Serving through
+// newEventServer's *http.Server must cut such a connection off instead of
+// hanging until the test's own deadline.
+func TestEventServer_ReadTimeoutClosesSlowClient(t *testing.T) {
+	server := newEventServer(0)
+	server.ReadTimeout = 100 * time.Millisecond
+	server.Handler = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	ctx := context.Background()
+	ln, err := new(net.ListenConfig).Listen(ctx, "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer ln.Close()
+
+	go func() { _ = server.Serve(ln) }()
+	defer server.Close()
+
+	conn, err := new(net.Dialer).DialContext(ctx, "tcp", ln.Addr().String())
+	require.NoError(t, err)
+	defer conn.Close()
+
+	// Send an incomplete request line and never finish it.
+	_, err = conn.Write([]byte("GET / HTTP/1.1\r\n"))
+	require.NoError(t, err)
+
+	// Generous deadline so a hang reports as a failed read, not a stuck test.
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
+	start := time.Now()
+	_, err = conn.Read(make([]byte, 1))
+	elapsed := time.Since(start)
+
+	require.Error(t, err)
+	assert.Less(t, elapsed, 1*time.Second, "connection should be closed by the server's ReadTimeout, not the test's own deadline")
 }
