@@ -338,6 +338,23 @@ func TestGetSessionDir_WaitsForActive(t *testing.T) {
 	}
 }
 
+func TestMoveSessionLogsToPrevLogs_StatErrorNotIgnored(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Make "logs" unstatable by putting the session dir under a regular file
+	// instead of a directory, so os.Stat fails with ENOTDIR rather than
+	// "not exist".
+	notADir := filepath.Join(tmpDir, "not-a-dir")
+	if err := os.WriteFile(notADir, []byte("x"), 0644); err != nil {
+		t.Fatalf("failed to create file: %v", err)
+	}
+	sessionDir := filepath.Join(notADir, "session_x")
+
+	if err := MoveSessionLogsToPrevLogs(sessionDir, "node-abc"); err == nil {
+		t.Fatal("expected MoveSessionLogsToPrevLogs to return an error when os.Stat fails for a reason other than not-exist, got nil")
+	}
+}
+
 func TestMoveLeftoverSessionLogs(t *testing.T) {
 	tmpDir := t.TempDir()
 	originalTmpRoot := os.Getenv("RAY_TMP_ROOT")

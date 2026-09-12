@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"math"
 	"net"
 	"net/http"
@@ -129,8 +130,11 @@ func MoveSessionLogsToPrevLogs(sessionDir, nodeID string) error {
 
 	oldLogsDir := filepath.Join(sessionDir, "logs")
 	if _, err := os.Stat(oldLogsDir); err != nil {
-		// No logs directory, nothing to move
-		return nil
+		if errors.Is(err, fs.ErrNotExist) {
+			// No logs directory, nothing to move
+			return nil
+		}
+		return fmt.Errorf("failed to stat logs directory %s: %w", oldLogsDir, err)
 	}
 
 	dest := filepath.Join(GetTmpRayRoot(), "prev-logs", sessionName, nodeID)
