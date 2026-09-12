@@ -140,6 +140,14 @@ func TestHistoryServer(t *testing.T) {
 			name:     "Live and dead cluster: /timezone should return consistent timezone info",
 			testFunc: testLiveAndDeadClusterTimezone,
 		},
+		{
+			name:     "Live cluster: /api/cluster_status should proxy to live clusters",
+			testFunc: testLiveClusterStatus,
+		},
+		{
+			name:     "Dead cluster: /api/cluster_status should return reconstructed cluster status",
+			testFunc: testDeadClusterStatus,
+		},
 	}
 
 	for _, tt := range tests {
